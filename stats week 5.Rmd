@@ -1,0 +1,339 @@
+---
+title: "Week 5 stats"
+author: "Will Jones"
+date: "04/03/2021"
+output:
+  html_document:
+    df_print: paged
+  word_document: default
+---
+## Model checking
+```{r setup, include=FALSE}
+library(tidyverse)
+library(modelr)
+library(car)
+library(qqplotr)
+library(praise)
+library(patchwork)
+library(stargazer)
+library(skimr)
+```
+
+## clean data
+```{r, include=TRUE, results='hide',echo=T, error=F, message=F, warning= FALSE}
+mammals <- read_csv("data/mammals.csv")
+
+```
+
+
+
+```{r , include=TRUE, results='hide'}
+
+skim(mammals)#missing values
+names(mammals)#all same names
+unique(mammals$species)#names only appear once so all correct 
+str(mammals)# 1 character which is species rest are numeric 
+head(mammals)# clean data 
+```
+
+i have some NAs therefore:
+1) Do you have any
+2) Are they in the variable you will actually be testing?
+E.g. if there is an NA but in a different column, you don't want to drop that whole row if it doesn't affect your analysis
+
+are they in my column= non in body weight but some gestation:
+therefore:
+```{R, }
+
+```
+
+
+inspect stats using ggally
+
+```{r mammals, echo=F, error=F, message=F, warning=FALSE}
+mammals %>% 
+  select(!species) %>% 
+  GGally::ggpairs()
+```
+
+
+Explore a relationship: Gestation and adult body weight
+We will expore the relationship between the length of gestation and adult bodyweight. With the working hypothesis that the length of gestation is a reliable predictor of adult bodyweight across species.
+
+```{r , warning=FALSE}
+p <- mammals %>% 
+  ggplot(aes(x=gestation, y=body_wt))+
+  geom_point()+
+  ggtitle("Gestation (days) against \n Body Weight (kg)")
+
+p
+
+```
+
+## Questions
+Does it look like a linear relationship makes sense?
+
+Do we have any concerns about modeling a linear relationship?
+
+Any outliers?
+
+Any initial thoughts on homoscedasticity (equal variance of the residuals across the model?)
+
+Linear relationship: Maybe, though it is difficult to see because of the very narrow distribution of bodyweights across the mammals
+
+Modeling concerns, definitely - it would be difficult to fit a good least squares line through this data
+
+Clearly two very large outliers on both gestation and body weight at the high end of the scale
+
+Also clearly a funnel shape as the values increase, so major concerns there will be heteroscedasticity (unequal residual variance across the fit of our regression).
+
+## Model it
+Once we’ve decided that a linear relationship makes sense, we’ll model it using lm().
+Note that we haven’t checked all assumptions yet. That’s because a lot of our assumptions for linear regression are based on model residuals (e.g. normality & homoscedasticity of residuals), which we can’t calculate until after we find the predicted values from the model (residual=y actual−y predicted).
+
+So let’s make our first model
+(body wt is the dependent variable
+
+gestation is the independent
+everything right of ~ indicates a predictor or independent variable)
+
+``` {r ,  warning=FALSE}
+
+gestation_model <- lm(body_wt~gestation, data=mammals)
+summary(gestation_model)
+
+```
+we found the :
+slope of the line is 4.12
+the y-intercept is -374.97
+
+so extra 4 days of gestation incerases body weght by 1 kg, look this up not too sure 
+
+use broom::tidy() to get the model outputs in a nice dataframe format
+
+``` {R, warning= FALSE}
+tidy_gestation <- broom::tidy(gestation_model, conf.int=T)
+tidy_gestation
+```
+## extract the intercept 
+
+```{r, warning=FALSE}
+tidy_gestation$estimate[1]
+```
+## extract the slope 
+```{r, warning=FALSE}
+tidy_gestation$estimate[2]
+```
+## model information (degrees of freedom, F-statistic, p-value)
+```{r, warning=FALSE}
+glance_gestation <- broom::glance(gestation_model)
+glance_gestation
+```
+To find the predicted values and the residuals for each species adult body weight for their gestation period, we can use broom::augment()
+```{r, warning=FALSE}
+augment_gestation <- broom::augment(gestation_model, interval="confidence")
+augment_gestation
+```
+### 5. Model assumptions
+Let’s use this information from augment_gestation to manually evaluate some assumptions.
+
+Linearly related variables (CHECK - already looked & thought about this before starting)
+
+Normally distributed residuals
+
+Homoscedasticity (constant residuals variance)
+
+Influential outliers
+
+Residuals distribution
+The standardised residuals for our model (y actual −y predicted ) are stored in the $.std.resid column from the broom::augment() function.
+
+Here we create a histogram 
+eyeball this histogram and see if your residuals look like they follow a normal distribution? yes
+
+
+```{r, warning=FALSE}
+augment_gestation %>% 
+ggplot(aes(x = .std.resid)) +
+  geom_histogram()+
+  ggtitle("Histogram of the model residuals")
+```
+QQ plot of the residuals
+this shows the same as the histogram but as a different plot 
+
+```{r, warning=FALSE}
+augment_gestation %>%
+ggplot(aes(sample = .std.resid)) +
+   geom_qq()+
+  stat_qq_line()+
+  ggtitle("QQ plot")
+```
+This looks like an example of an overall left-skew with one extreme outlier
+
+left skew goes from below the line touches it and then goes back down like a c facing down
+right skew comes from above touches the line then goes back up 
+Under-dispersed data is an s shape
+Over-dispersed data has a horizontal s shape, =Over-dispersed data has an increased number of outliers
+
+### Homoscedasticity
+ Does it look like the variance (spread) of residuals changes over the span of the model?
+ 
+ Violations of homoscedasticity may lead to wrongly large or small errors (and our confidence intervals) associated with coefficients, but will not affect the model estimates (coefficients) themselves.
+```{r, warning=FALSE}
+augment_gestation %>%
+ggplot(aes(x=.fitted, y= .std.resid)) +
+   geom_point()+
+  ggtitle("Standardised residuals against Fitted values from the model")
+```
+
+
+```{r, warning=FALSE}
+augment_gestation %>%
+ggplot(aes(x=.fitted, y= .resid)) +
+   geom_point()+
+  ggtitle("Residuals against Fitted values from the model")
+
+```
+
+Note that while the pattern is identical, the scale is very different.
+this is because your residuals are on the original scale of the dependent variable, whereas your standardised residuals have been fitted onto a distribution of standard deviations
+
+Here we can see there is clearly both an increase in the variance of the residuals as the fitted values increase AND there is a clear trend in the residuals. Not looking good!
+Remember what we WANT to see is no trends here and an even distribution of the residuals - this would indicate our model has explained most or all of the linear pattern, and has an equal amount of error along the regression.
+
+###Cook’s Distance (influential outliers)
+If Cook’s D is greater than 4n for any observation, where n is the number of observations used to create the model, then that observation is strongly influential. This does NOT mean you should just remove that observation. In fact, you should plan on leaving all observations in unless you have really good reason not to.
+
+In our example (mammals), n = 62, so the threshold for a second look is 462. Let’s make & store that as a variable here:
+```{r, warning=FALSE}
+cook_limit <- as.numeric(4 / count(augment_gestation))
+### I use the augmented dataframe in case any NA values were dropped while fitting the model. 
+cook_limit
+```
+
+model:makes teh cook limit for you 
+```{r, warning=FALSE}
+augment_gestation %>% 
+ggplot(aes(x = as.numeric(rownames(augment_gestation)), y = .cooksd)) +
+  geom_col() +
+  geom_hline(yintercept = cook_limit,
+             color = "red",
+             linetype = "dashed")+
+    ggtitle("Cook's Distance")
+```
+can see one or two points having a huge impact on the model line
+
+### Modelling predictions and residuals
+how well our Regression line fits the pattern of our dataset & we can look at the pattern of our residuals against the dependent variable.
+```{r, warning=FALSE}
+augment_gestation %>% 
+  ggplot(aes(x=gestation, y=body_wt))+
+  geom_line(aes(x=gestation, y=.fitted))+
+  geom_line(aes(x=gestation, y=.upper), linetype="dashed")+
+  geom_line(aes(x=gestation, y=.lower), linetype="dashed")+
+  geom_point()+
+  ggtitle("Linear trend")
+```
+
+### Refit your model
+force our residuals into a more normal distribution
+transforming data and producing a closer approximation of a linear relationship
+
+suitable transformation:
+Ok let’s try and fit a new model with a Log10 transformation of our dependent variable
+```{r, warning=FALSE}
+log10_model <- lm(log10(body_wt)~gestation, data=mammals)
+summary(log10_model)
+```
+from this tranformation we will now see that we have
+
+a Normal distribution to our residuals
+
+Removed patterns in our residuals against fitted, and greatly reduced heteroscedasticity (variance along the fit of our regression line)
+
+We still have two influential outliers but on a much reduced scale.
+
+An alternate approach to make those graphs (that you’re more likely to use, and is fine): Just get the diagnostic plots using plot(model_name):
+
+```{r, warning=FALSE}
+par(mfrow=c(2,2))
+plot(log10_model)
+```
+
+Now that we’ve explored the assumptions and have decided that our linear regression is now a valid tool to describe the relationship between gestation and bodyweight, let’s look at the model.
+```{r, warning=FALSE}
+augment_log10_model <- broom::augment(log10_model, interval="confidence")
+plot9 <- 
+augment_log10_model %>% 
+  ggplot(aes(x=gestation, y=`log10(body_wt)`))+
+  geom_line(aes(x=gestation, y=.fitted))+
+  geom_line(aes(x=gestation, y=.upper), linetype="dashed")+
+  geom_line(aes(x=gestation, y=.lower), linetype="dashed")+
+  geom_point()+
+  ggtitle("")
+plot9+ggtitle("Linear trend")
+
+```
+## Write a brief summary of your best-fit model
+Things to include:
+
+Mention the data transformation
+
+Describe the slope of the regression
+
+F statistic, degrees of freedom and P-value
+
+The variance explained by the model
+
+```{r, warning=FALSE}
+broom::tidy(log10_model, conf.int=T)
+broom::glance(log10_model)
+
+```
+### write up:
+A simple linear regression was used to explore the relationship between gestation in days and the average adult body weight across mutliple mammalian species. A log10 transformation was applied to the mammalian bodyweight variable in order to better approximate a linear fit for the regression. A significant regression equation was found β = 0.007(95%CI: 0.006-0.009), F1,56 = 80.24, P < 0.001, with an R^2 of 059.
+
+# stargazer package
+this will need to be modififed between html and pdf formats 
+(https://www.jakeruss.com/cheatsheets/stargazer/)
+
+```{r, warning=FALSE}
+stargazer::stargazer(log10_model, type="html", ci=TRUE)
+
+```
+
+#Making predictions at new points
+make a dataframe of new gestation perios then feed that to our linear model to make predictions for adult body weight.
+```{r, warning=FALSE}
+new_df <- data.frame(gestation=c(600,45,270))
+
+prediction <- predict(log10_model, new_df)
+prediction
+```
+
+Question - Why are these values not what we would expect for bodyweights?
+Because our prodel predicts the log10 value of the adult bodyweight, we need to back transform our predictions onto their original scale.
+
+
+```{r, warning=FALSE}
+10^prediction
+```
+
+# Find Pearson’s r for correlation
+The coefficient of determination or R2, tells us how much of the variance in the dependent variable is explained by the model.
+explore the strength of the overall correlation=for two linearly related continuous variables, can be expressed using Pearson’s r.
+Pearson’s r ranges in value from -1 (perfectly negatively correlated - as one variable increases the other decreases) to 1 (perfectly positively correlated - as one variable increases the other increases). A correlation of 0 means that there is no degree of relationship between the two variables.
+
+Typical guidelines look something like this (there’s wiggle room in there):
+
+r = 0: no correlation r < |0.3|: weak correlation r between |0.3| and |0.7|: moderate correlation r > |0.7|: strong correlation
+
+We’ll use the cor.test() function, adding the two vectors (body weight and body height) as the arguments. The function reports the Pearson’s r value, and performs a hypothesis test with null hypothesis that the correlation = 0.
+
+The distinction is that this test does not imply that one variable is directly affected by the other, simply that appear to change together
+
+```{r, warning=FALSE}
+my_cor <- cor.test(log10(mammals$body_wt), mammals$gestation)
+my_cor
+```
+Here, we see that there is a strong positive correlation between body weight and gestation width (r = 0.77, t56 = 8.96, P < 0.001).
